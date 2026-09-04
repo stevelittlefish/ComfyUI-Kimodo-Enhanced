@@ -126,13 +126,15 @@ class SkeletonData:
         lo = name.lower()
         if lo in self.bones:
             return self.bones[lo]
-        # strip prefix
-        if ":" in lo:
-            stripped = lo.split(":")[-1]
-            if stripped in self.bones:
-                return self.bones[stripped]
+        # strip prefix on the query (e.g. "mixamorig:hips" -> "hips")
+        query_suffix = lo.split(":")[-1] if ":" in lo else lo
+        if query_suffix in self.bones:
+            return self.bones[query_suffix]
+        # match by suffix on both sides — handles prefix mismatches like
+        # "mixamorig:hips" (mapping) vs "mixamorig1:hips" (actual FBX bone)
         for bname, bone in self.bones.items():
-            if ":" in bname and bname.split(":")[-1] == lo:
+            bone_suffix = bname.split(":")[-1] if ":" in bname else bname
+            if bone_suffix == query_suffix:
                 return bone
         return None
 
