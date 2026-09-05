@@ -531,8 +531,10 @@ class Kimodo_ExportGLB:
 
         target_path = file3d_to_path(rigged_glb)
         if not target_path or not os.path.exists(target_path):
-            print(f"[Kimodo] Rigged GLB not found: '{target_path}'", flush=True)
-            return {"ui": {"model_file": [""]}, "result": (make_file3d("", "glb"),)}
+            raise RuntimeError(
+                f"Kimodo Export GLB: input character file not found ('{target_path}'). "
+                "Load a rigged glb/gltf in the Load3D node."
+            )
 
         output_dir = folder_paths.get_output_directory()
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -554,7 +556,10 @@ class Kimodo_ExportGLB:
             print(f"[Kimodo] GLB export error: {e}", flush=True)
             import traceback
             traceback.print_exc()
-            return {"ui": {"model_file": [""]}, "result": (make_file3d("", "glb"),)}
+            raise RuntimeError(
+                f"Kimodo Export GLB failed: {e}. If this says 'no skin', the loaded "
+                "character is not rigged — rig it first (e.g. SkinTokensRig)."
+            ) from e
 
         return {"ui": {"model_file": [out_path]}, "result": (make_file3d(out_path, "glb"),)}
 
