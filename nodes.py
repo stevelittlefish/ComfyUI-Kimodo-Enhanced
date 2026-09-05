@@ -488,6 +488,78 @@ class Kimodo_ExportFBX:
 
 
 # ---------------------------------------------------------------------------
+# Node: Export GLB (retarget onto a rigged glTF/GLB character)
+# ---------------------------------------------------------------------------
+class Kimodo_ExportGLB:
+    @classmethod
+    def INPUT_TYPES(s):
+        from kimodo_comfy_types import RIGGED_FILE3D_TYPES
+        return {
+            "required": {
+                "motion": ("KIMODO_MOTION",),
+                "rigged_glb": (RIGGED_FILE3D_TYPES, {
+                    "tooltip": "Rigged glb/gltf character (e.g. from a Load3D node or "
+                               "SkinTokensRig). Joints matched by Mixamo naming.",
+                }),
+                "filename_prefix": ("STRING", {"default": "kimodo_glb"}),
+                "sample_index": ("INT", {"default": 0, "min": 0, "max": 15,
+                                         "tooltip": "Which sample to export (0-indexed)"}),
+            },
+            "optional": {
+                "yaw_offset": ("FLOAT", {
+                    "default": 0.0, "min": -180.0, "max": 180.0, "step": 1.0,
+                    "tooltip": "Rotate character around Y-axis (degrees).",
+                }),
+                "scale": ("FLOAT", {
+                    "default": 0.0, "min": 0.0, "max": 10.0, "step": 0.01,
+                    "tooltip": "Force scale multiplier (0 = auto height-based scaling).",
+                }),
+            },
+        }
+
+    RETURN_TYPES = ("FILE_3D_GLB",)
+    RETURN_NAMES = ("rigged_glb",)
+    FUNCTION = "export"
+    CATEGORY = "Kimodo"
+    OUTPUT_NODE = True
+
+    def export(self, motion, rigged_glb, filename_prefix="kimodo_glb",
+               sample_index=0, yaw_offset=0.0, scale=0.0):
+
+        from kimodo_comfy_types import file3d_to_path, make_file3d
+        from kimodo_retarget_glb import export_kimodo_glb
+
+        target_path = file3d_to_path(rigged_glb)
+        if not target_path or not os.path.exists(target_path):
+            print(f"[Kimodo] Rigged GLB not found: '{target_path}'", flush=True)
+            return {"ui": {"model_file": [""]}, "result": (make_file3d("", "glb"),)}
+
+        output_dir = folder_paths.get_output_directory()
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        uid = str(uuid.uuid4())[:8]
+        idx = min(sample_index, motion.batch_size - 1)
+        out_path = os.path.join(output_dir, f"{filename_prefix}_{ts}_{uid}.glb")
+
+        try:
+            export_kimodo_glb(
+                motion_data=motion,
+                target_glb_path=target_path,
+                output_path=out_path,
+                sample_index=idx,
+                yaw_offset=yaw_offset,
+                force_scale=scale,
+            )
+            print(f"[Kimodo] GLB exported: {out_path}", flush=True)
+        except Exception as e:
+            print(f"[Kimodo] GLB export error: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            return {"ui": {"model_file": [""]}, "result": (make_file3d("", "glb"),)}
+
+        return {"ui": {"model_file": [out_path]}, "result": (make_file3d(out_path, "glb"),)}
+
+
+# ---------------------------------------------------------------------------
 # Node: Text Encode (split from Generate)
 # ---------------------------------------------------------------------------
 class Kimodo_TextEncode:
@@ -734,6 +806,7 @@ NODE_CLASS_MAPPINGS = {
     "Kimodo_SaveNPZ": Kimodo_SaveNPZ,
     "Kimodo_ExportBVH": Kimodo_ExportBVH,
     "Kimodo_ExportFBX": Kimodo_ExportFBX,
+    "Kimodo_ExportGLB": Kimodo_ExportGLB,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -746,4 +819,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Kimodo_SaveNPZ": "Kimodo Save NPZ",
     "Kimodo_ExportBVH": "Kimodo Export BVH",
     "Kimodo_ExportFBX": "Kimodo Export FBX (Mixamo)",
+    "Kimodo_ExportGLB": "Kimodo Export GLB (Mixamo)",
 }

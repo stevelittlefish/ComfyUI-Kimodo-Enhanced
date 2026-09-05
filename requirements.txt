@@ -7,3 +7,4 @@ peft>=0.18
 bvhio
 trimesh>=3.21.7
 scenepic>=1.1.0
+pygltflib>=1.16.1
