@@ -514,6 +514,12 @@ class Kimodo_ExportGLB:
                     "default": 0.0, "min": 0.0, "max": 10.0, "step": 0.01,
                     "tooltip": "Force scale multiplier (0 = auto height-based scaling).",
                 }),
+                "map_fingers": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "Retarget the finger bones. Turn OFF to leave the hands "
+                               "in their rest pose (useful if fingers distort — isolates "
+                               "the body retarget from the fragile finger chain).",
+                }),
             },
         }
 
@@ -524,7 +530,7 @@ class Kimodo_ExportGLB:
     OUTPUT_NODE = True
 
     def export(self, motion, rigged_glb, filename_prefix="kimodo_glb",
-               sample_index=0, yaw_offset=0.0, scale=0.0):
+               sample_index=0, yaw_offset=0.0, scale=0.0, map_fingers=True):
 
         from kimodo_comfy_types import file3d_to_path, make_file3d
         from kimodo_retarget_glb import export_kimodo_glb
@@ -550,6 +556,7 @@ class Kimodo_ExportGLB:
                 sample_index=idx,
                 yaw_offset=yaw_offset,
                 force_scale=scale,
+                map_fingers=map_fingers,
             )
             print(f"[Kimodo] GLB exported: {out_path}", flush=True)
         except Exception as e:

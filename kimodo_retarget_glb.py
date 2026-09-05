@@ -273,6 +273,15 @@ def write_animation_to_gltf(g, node_of_joint, name_to_joint_index,
 # Public API
 # ============================================================================
 
+_FINGER_TOKENS = ("thumb", "index", "middle", "ring", "pinky")
+
+
+def _body_only_mapping(mapping: dict) -> dict:
+    """Drop finger bones from a SOMA->target mapping (body + hand root only)."""
+    return {s: t for s, t in mapping.items()
+            if not any(tok in s.lower() for tok in _FINGER_TOKENS)}
+
+
 def export_kimodo_glb(
     motion_data,
     target_glb_path: str,
@@ -280,6 +289,7 @@ def export_kimodo_glb(
     sample_index: int = 0,
     yaw_offset: float = 0.0,
     force_scale: float = 0.0,
+    map_fingers: bool = True,
 ) -> str:
     """Retarget Kimodo SOMA motion onto a rigged glb and save an animated glb.
 
@@ -311,8 +321,10 @@ def export_kimodo_glb(
         _log(f"  Source bones: {len(src_skel.bones)}  Target bones: {len(tgt_skel.bones)}")
 
         # 3. Retarget (shared math, SOMA -> Mixamo mapping).
+        mapping = SOMA_TO_MIXAMO if map_fingers else _body_only_mapping(SOMA_TO_MIXAMO)
+        _log(f"  Bone mapping: {len(mapping)} entries (map_fingers={map_fingers})")
         ret_rots, ret_locs = retarget_animation(
-            src_skel, tgt_skel, SOMA_TO_MIXAMO,
+            src_skel, tgt_skel, mapping,
             force_scale=force_scale, yaw_offset=yaw_offset,
         )
         if len(ret_rots) == 0:
