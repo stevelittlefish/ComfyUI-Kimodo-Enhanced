@@ -27,7 +27,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from kimodo_retarget_fbx import (  # noqa: E402
     BoneData,
     SkeletonData,
+    SOMA_TO_MIXAMO,
     retarget_animation,
+    _body_only_mapping,
     _quat_mul,
     _quat_inv,
 )
@@ -141,6 +143,22 @@ def test_direction_aware_off_matches_legacy_on_apose():
     legacy_world = _quat_mul(lift, off)  # hips parent identity -> local == world
     got = ret_rots["mixamorig:leftarm"][1]
     assert np.allclose(got, legacy_world, atol=1e-6), (got, legacy_world)
+
+
+def test_body_only_mapping_drops_fingers_keeps_body():
+    """map_fingers=False must strip every finger bone but keep the body + hand root.
+
+    Finger direction-matching bends SOMA's fingers into a claw on most rigs, so
+    the nodes default to this body-only mapping."""
+    full = SOMA_TO_MIXAMO
+    body = _body_only_mapping(full)
+    assert len(body) < len(full)
+    for s in body:
+        assert not any(tok in s.lower()
+                       for tok in ("thumb", "index", "middle", "ring", "pinky")), s
+    # body joints survive
+    for s in ("hips", "leftarm", "rightforearm", "lefthand", "leftfoot"):
+        assert s in body, s
 
 
 def _bone_dir(bone, child):

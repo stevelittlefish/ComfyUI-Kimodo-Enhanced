@@ -35,6 +35,7 @@ from kimodo_retarget_fbx import (
     BoneData,
     SkeletonData,
     SOMA_TO_MIXAMO,
+    _body_only_mapping,
     kimodo_to_source_skeleton,
     retarget_animation,
 )
@@ -273,15 +274,6 @@ def write_animation_to_gltf(g, node_of_joint, name_to_joint_index,
 # Public API
 # ============================================================================
 
-_FINGER_TOKENS = ("thumb", "index", "middle", "ring", "pinky")
-
-
-def _body_only_mapping(mapping: dict) -> dict:
-    """Drop finger bones from a SOMA->target mapping (body + hand root only)."""
-    return {s: t for s, t in mapping.items()
-            if not any(tok in s.lower() for tok in _FINGER_TOKENS)}
-
-
 def export_kimodo_glb(
     motion_data,
     target_glb_path: str,
@@ -289,7 +281,7 @@ def export_kimodo_glb(
     sample_index: int = 0,
     yaw_offset: float = 0.0,
     force_scale: float = 0.0,
-    map_fingers: bool = True,
+    map_fingers: bool = False,
     direction_aware: bool = True,
 ) -> str:
     """Retarget Kimodo SOMA motion onto a rigged glb and save an animated glb.

@@ -406,6 +406,14 @@ class Kimodo_ExportFBX:
                                "Leave ON for A-pose characters. Turn OFF for the legacy "
                                "rotation-only behaviour (only correct for a T-posed target).",
                 }),
+                "map_fingers": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Retarget the finger bones. OFF by default: SOMA's finger "
+                               "rest orientations differ sharply from most rigs, so "
+                               "direction-matching bends the fingers into a claw. OFF "
+                               "leaves the hands in their natural rest pose while the body "
+                               "animates. Turn ON only if your rig's fingers align well.",
+                }),
             },
         }
 
@@ -452,7 +460,8 @@ class Kimodo_ExportFBX:
         return None
 
     def export(self, motion, custom_fbx_path, filename_prefix="kimodo_fbx",
-               sample_index=0, yaw_offset=0.0, scale=0.0, direction_aware=True):
+               sample_index=0, yaw_offset=0.0, scale=0.0, direction_aware=True,
+               map_fingers=False):
 
         from kimodo_retarget_fbx import export_kimodo_fbx, HAS_FBX_SDK
 
@@ -484,6 +493,7 @@ class Kimodo_ExportFBX:
                 yaw_offset=yaw_offset,
                 force_scale=scale,
                 direction_aware=direction_aware,
+                map_fingers=map_fingers,
             )
             print(f"[Kimodo] FBX exported: {out_path}", flush=True)
         except Exception as e:
@@ -523,10 +533,12 @@ class Kimodo_ExportGLB:
                     "tooltip": "Force scale multiplier (0 = auto height-based scaling).",
                 }),
                 "map_fingers": ("BOOLEAN", {
-                    "default": True,
-                    "tooltip": "Retarget the finger bones. Turn OFF to leave the hands "
-                               "in their rest pose (useful if fingers distort — isolates "
-                               "the body retarget from the fragile finger chain).",
+                    "default": False,
+                    "tooltip": "Retarget the finger bones. OFF by default: SOMA's finger "
+                               "rest orientations differ sharply from most rigs, so "
+                               "direction-matching bends the fingers into a claw. OFF "
+                               "leaves the hands in their natural rest pose while the body "
+                               "animates. Turn ON only if your rig's fingers align well.",
                 }),
                 "direction_aware": ("BOOLEAN", {
                     "default": True,

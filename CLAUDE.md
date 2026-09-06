@@ -77,6 +77,19 @@ the Export GLB and Export FBX nodes, threaded through
 legacy rotation-only path — the escape hatch if the correction ever misbehaves on
 an unusual rig.
 
+### Fingers are OFF by default (`map_fingers`)
+
+Point-the-bone is faithful, which is the problem for fingers: SOMA's 77-joint
+finger **rest** orientations differ sharply from a typical rig's (e.g. a rig
+thumb resting ~down vs SOMA's thumb ~up-forward, >100° apart), so matching the
+source finger's absolute world direction bends the target fingers into a **claw**
+(the "spastic hands" symptom). A T-pose bake would NOT help — T-pose is undefined
+for fingers. So `map_fingers` defaults **OFF** on both nodes: `_body_only_mapping`
+drops the finger bones, leaving the hands in their natural rest pose while the
+body animates. Turn it ON only for a rig whose fingers align well with SOMA.
+A proper fix (transfer the source's finger *curl* relative to its own rest,
+rather than absolute direction) is possible but unbuilt.
+
 ## Testing (no GPU / no FBX SDK / no ComfyUI needed)
 
 `tests/test_retarget_direction.py` is pure-numpy: it builds tiny `SkeletonData`

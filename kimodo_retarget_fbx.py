@@ -929,6 +929,21 @@ def _save_fbx(manager, scene, path: str):
 # Public API
 # ============================================================================
 
+_FINGER_TOKENS = ("thumb", "index", "middle", "ring", "pinky")
+
+
+def _body_only_mapping(mapping: dict) -> dict:
+    """Drop finger bones from a SOMA->target mapping (body + hand root only).
+
+    Finger retargeting is unreliable: SOMA's 77-joint finger rest orientations
+    differ sharply from a typical rig's, so direction-matching bends the fingers
+    into a claw. Dropping them leaves the target fingers in their natural rest
+    pose while the body still animates. Default off in the nodes for that reason.
+    """
+    return {s: t for s, t in mapping.items()
+            if not any(tok in s.lower() for tok in _FINGER_TOKENS)}
+
+
 def export_kimodo_fbx(
     motion_data,
     target_fbx_path: str,
@@ -937,12 +952,14 @@ def export_kimodo_fbx(
     yaw_offset: float = 0.0,
     force_scale: float = 0.0,
     direction_aware: bool = True,
+    map_fingers: bool = False,
 ) -> str:
     """
     Export Kimodo SOMA motion to animated FBX via retargeting to a Mixamo character.
 
     ``direction_aware`` enables the rest-direction correction (A-pose support);
-    see ``retarget_animation``. Returns path to the saved FBX.
+    see ``retarget_animation``. ``map_fingers`` retargets the finger bones (off by
+    default — see ``_body_only_mapping``). Returns path to the saved FBX.
     """
     _log("=" * 60)
     _log("KIMODO FBX EXPORT START")
@@ -976,8 +993,10 @@ def export_kimodo_fbx(
         _log(f"  Target bones: {len(tgt_skel.bones)}")
 
         # 3. Retarget
+        mapping = SOMA_TO_MIXAMO if map_fingers else _body_only_mapping(SOMA_TO_MIXAMO)
+        _log(f"  Bone mapping: {len(mapping)} entries (map_fingers={map_fingers})")
         ret_rots, ret_locs = retarget_animation(
-            src_skel, tgt_skel, SOMA_TO_MIXAMO,
+            src_skel, tgt_skel, mapping,
             force_scale=force_scale, yaw_offset=yaw_offset,
             direction_aware=direction_aware,
         )
