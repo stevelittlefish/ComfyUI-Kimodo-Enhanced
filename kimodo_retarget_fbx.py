@@ -584,25 +584,36 @@ def retarget_animation(
             continue
         if t_bone.name in mapped_tgt or s_bone.name in mapped_src:
             continue
-        off = _quat_mul(_quat_inv(s_bone.rest_rotation), t_bone.rest_rotation)
-        # Rest-DIRECTION correction: rotate the source bone's rest direction onto
-        # the target's. This is what makes a T-pose source drive an A-pose (or
-        # any-pose) target correctly — the rotation-only ``off`` above ignores it.
-        # When both skeletons share a pose (e.g. both T-pose) the two directions
-        # coincide, corr == identity, and the math below reduces exactly to the
-        # legacy ``s_rot * off``, so the working T-pose path is unchanged.
+        # Retarget offset. The legacy form corrects only for rest *rotations*:
+        #   off = inv(s_rest) * t_rest
+        # and ``t_rot = s_rot * off`` copies the source bone's WORLD rotation onto
+        # the target. That flaps an A-pose rig: SOMA arms hang down at run time
+        # (only the T-pose *reference* is horizontal), and copying that world
+        # rotation onto an already-down target arm over-rotates it.
+        #
+        # The fix folds in a rest-DIRECTION correction G that maps the target
+        # bone's rest direction onto the source's:
+        #   off = inv(s_rest) * G * t_rest,   G : t_dir -> s_dir
+        # so ``t_rot = s_rot * off`` makes the target bone POINT where the source
+        # bone points every frame (SOMA arm down -> target arm down; SOMA arm
+        # raised -> target arm raised). When the two rest directions coincide
+        # (e.g. a T-pose target) G == identity and this reduces EXACTLY to the
+        # legacy off, so the working T-pose path cannot regress. Shortest-arc G
+        # leaves bone roll/twist undefined — acceptable for the A-/T-pose bar.
         if direction_aware:
             s_dir = _rest_direction(src, s_bone, src_kids)
             t_dir = _rest_direction(tgt, t_bone, tgt_kids)
-            corr = _quat_from_two_vectors(s_dir, t_dir)
+            g = _quat_from_two_vectors(t_dir, s_dir)
+            off = _quat_mul(_quat_inv(s_bone.rest_rotation),
+                            _quat_mul(g, t_bone.rest_rotation))
         else:
-            corr = _IDENTITY_Q.copy()
-        active.append((s_bone, t_bone, off, corr))
+            off = _quat_mul(_quat_inv(s_bone.rest_rotation), t_bone.rest_rotation)
+        active.append((s_bone, t_bone, off))
         mapped_tgt.add(t_bone.name)
         mapped_src.add(s_bone.name)
 
     _log(f"  Matched bone pairs: {len(active)}")
-    for s, t, _, _ in sorted(active, key=lambda x: x[1].name):
+    for s, t, _ in sorted(active, key=lambda x: x[1].name):
         _log(f"    {s.name:30s} → {t.name}")
 
     if miss_src:
@@ -628,23 +639,11 @@ def retarget_animation(
     # 3. World rotations
     tgt_world_anims = {}
 
-    for s_bone, t_bone, off, corr in active:
+    for s_bone, t_bone, off in active:
         tgt_world_anims[t_bone.name] = {}
-        corr_inv = _quat_inv(corr)
-        s_rest_inv = _quat_inv(s_bone.rest_rotation)
         for f in frames:
             s_rot = s_bone.world_animation.get(f, s_bone.rest_rotation)
-            # Source world delta from its own rest, re-expressed in the target's
-            # rest frame via the direction correction, then applied onto the
-            # target's rest orientation:
-            #   delta_s = s_rot * inv(s_rest)
-            #   delta_t = corr * delta_s * inv(corr)
-            #   t_rot   = delta_t * t_rest
-            # With corr == identity and identity rests this is exactly the old
-            # ``s_rot * off`` (off = inv(s_rest) * t_rest).
-            delta_s = _quat_mul(s_rot, s_rest_inv)
-            delta_t = _quat_mul(_quat_mul(corr, delta_s), corr_inv)
-            t_rot = _quat_mul(delta_t, t_bone.rest_rotation)
+            t_rot = _quat_mul(s_rot, off)
             if yaw_offset != 0:
                 t_rot = _quat_mul(yaw_q, t_rot)
             tgt_world_anims[t_bone.name][f] = t_rot
@@ -698,7 +697,7 @@ def retarget_animation(
             _log(f"    Root loc frame[{fN}]: ({ret_locs[t_bone.name][fN][0]:.4f}, {ret_locs[t_bone.name][fN][1]:.4f}, {ret_locs[t_bone.name][fN][2]:.4f})")
 
     # 4. Local rotations from world
-    for s_bone, t_bone, _, _ in active:
+    for s_bone, t_bone, _ in active:
         ret_rots[t_bone.name] = {}
         pname = t_bone.parent_name
         for f in frames:

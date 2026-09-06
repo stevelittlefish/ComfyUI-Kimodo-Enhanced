@@ -33,34 +33,43 @@ t_rot = _quat_mul(s_rot, off)          # applies the source WORLD delta verbatim
 
 SOMA rest rotations are identity, and glb rigs from the sister project
 (`ComfyUI-SkinTokens-NoBlender`) also export identity bind rotations (their pose
-lives in bone **translations**). So `off` was identity and the source's
-world-space delta was applied straight onto the target — correct only if the
-target is **also T-posed**. On an **A-pose** rig (arms ~65° down) this drove the
-arm as if it started horizontal → the classic **arm "flapping"**.
+lives in bone **translations**). So `off` was identity and the source's world
+rotation was copied straight onto the target — correct only if the target is
+**also T-posed**. The subtle part: at run time SOMA's arms **hang down**; the
+horizontal T-pose is only its rest *reference*. Copying that world rotation onto
+an A-pose arm (already ~65° down) over-rotates it → the classic **arm "flapping"**.
 
-The fix adds a per-bone **direction** correction `corr` = shortest-arc rotation
-from the source bone's rest direction (toward its longest child) onto the
-target's, and applies the source's rest-relative delta conjugated by it:
+The fix folds a per-bone rest-**direction** correction `G` into `off`, so the
+target bone is driven to **point where the source bone points**:
 
 ```python
-delta_s = s_rot * inv(s_rest)
-delta_t = corr * delta_s * inv(corr)
-t_rot   = delta_t * t_rest
+G   = shortest_arc(t_dir -> s_dir)     # target rest dir -> source rest dir
+off = inv(s_rest) * G * t_rest
+t_rot = s_rot * off                    # unchanged application; direction now tracks
 ```
+
+where `t_dir`/`s_dir` are each bone's rest direction (toward its longest child).
+This makes `v_target(f) == v_source(f)` every frame: SOMA arm down → target arm
+down; SOMA arm raised → target arm raised.
+
+> **History / do not regress:** the first attempt used a *conjugation*
+> `corr * delta * inv(corr)`. That is wrong — it rigidly rotates the whole motion
+> by the rest offset, so a source arm hanging **down** was swung ~65° sideways and
+> the **arms crossed over the chest**. The right operation is the constant
+> right-multiply `G` above (point-the-bone), not a conjugation. `test_retarget_
+> direction.py::test_apose_source_down_keeps_target_down` locks this in.
 
 Key properties (see `tests/test_retarget_direction.py`):
 - **Strict generalization** — when source and target share a pose (both T-pose),
-  the two rest directions coincide, `corr == identity`, and the formula reduces
-  **exactly** to the legacy `s_rot * off`. The working T-pose path cannot regress.
-- **Rest preserved** — at the rest frame the target holds its own rest pose (an
-  A-pose arm no longer snaps to horizontal).
-- **Magnitude preserved** — conjugation is angle-preserving, so the target swings
-  by the same angle the source does.
+  `t_dir == s_dir`, `G == identity`, and `off` reduces **exactly** to the legacy
+  `inv(s_rest) * t_rest`. The working T-pose path cannot regress.
+- **Direction tracking** — the target bone points along the source bone's world
+  direction on every frame (the actual retarget goal).
 
 Scope is deliberately "A-pose and T-pose good; odd/extreme poses may be a bit
-janky" — shortest-arc leaves bone-roll undefined, which is fine for that bar.
-The **root/hip translation** block still uses the original `off` (unchanged),
-so hip motion is byte-identical to before.
+janky" — shortest-arc `G` leaves bone roll/twist undefined, which is fine for
+that bar. `off` is applied exactly as before, so the **root/hip translation**
+block is unaffected (for the near-vertical hips `G ≈ identity`).
 
 The correction is exposed as a **`direction_aware` toggle** (default ON) on both
 the Export GLB and Export FBX nodes, threaded through

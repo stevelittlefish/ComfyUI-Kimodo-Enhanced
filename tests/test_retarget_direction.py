@@ -143,35 +143,63 @@ def test_direction_aware_off_matches_legacy_on_apose():
     assert np.allclose(got, legacy_world, atol=1e-6), (got, legacy_world)
 
 
-def test_apose_rest_frame_holds_rest_pose():
-    """At the rest frame an A-pose target must reproduce its own rest, not snap flat."""
+def _bone_dir(bone, child):
+    d = child.head - bone.head
+    return d / np.linalg.norm(d)
+
+
+def _apply_wxyz(q, v):
+    return R.from_quat([q[1], q[2], q[3], q[0]]).apply(v)
+
+
+def test_apose_target_bone_points_where_source_points():
+    """The core invariant: the target bone must point along the SOURCE bone's
+    world direction each frame — regardless of the A-pose rest offset. This is
+    what the crossed-arms bug violated (the target arm swung across the body)."""
     src = _source_tpose()
     tgt = _target_apose(down_deg=65.0)
-    _apply_source_motion(src, {"leftarm": src.get_bone("leftarm").rest_rotation.copy()})
+
+    # Source arm swung DOWN and forward (like a real SOMA walk pose), not at the
+    # T-pose horizontal rest.
+    s_arm = src.get_bone("leftarm")
+    s_fore = src.get_bone("leftforearm")
+    s_dir = _bone_dir(s_arm, s_fore)  # +X (T-pose rest)
+    swing = R.from_euler("z", -80, degrees=True)  # rotate +X down toward -Y
+    v_s = swing.apply(s_dir)
+    s_world = _q_xyzw_to_wxyz(swing.as_quat())  # world rotation taking s_dir -> v_s
+    _apply_source_motion(src, {"leftarm": s_world})
 
     ret_rots, _ = retarget_animation(src, tgt, MAPPING)
 
-    got_local = ret_rots["mixamorig:leftarm"][0]
-    # Local rest rotation of the target arm relative to its (identity) parent.
+    # Target arm world rotation == its local channel (hips parent is identity).
     t_arm = tgt.get_bone("mixamorig:leftarm")
-    assert np.allclose(got_local, t_arm.rest_rotation, atol=1e-6), got_local
+    t_fore = tgt.get_bone("mixamorig:leftforearm")
+    t_dir = _bone_dir(t_arm, t_fore)
+    v_t = _apply_wxyz(ret_rots["mixamorig:leftarm"][1], t_dir)
+
+    assert np.allclose(v_t, v_s, atol=1e-5), (v_t, v_s)
 
 
-def test_motion_magnitude_preserved_for_apose():
-    """Target swing angle equals the source swing angle (flapping cure)."""
+def test_apose_source_down_keeps_target_down():
+    """Regression guard for the crossed-arms bug: a source arm hanging straight
+    down must leave the target arm hanging down (~its A-pose), NOT swung out to
+    the side across the body."""
     src = _source_tpose()
     tgt = _target_apose(down_deg=65.0)
 
-    swing_deg = 30.0
-    lift = _q_xyzw_to_wxyz(R.from_euler("z", swing_deg, degrees=True).as_quat())
-    _apply_source_motion(src, {"leftarm": lift})
+    s_arm = src.get_bone("leftarm")
+    s_fore = src.get_bone("leftforearm")
+    swing = R.from_euler("z", -90, degrees=True)  # +X -> straight down (-Y)
+    s_world = _q_xyzw_to_wxyz(swing.as_quat())
+    _apply_source_motion(src, {"leftarm": s_world})
 
     ret_rots, _ = retarget_animation(src, tgt, MAPPING)
 
-    # Delta of the target arm between rest frame and posed frame, in world terms.
-    # hips parent unanimated -> local == world, so compare local channel deltas.
-    q0 = ret_rots["mixamorig:leftarm"][0]
-    q1 = ret_rots["mixamorig:leftarm"][1]
-    delta = _quat_mul(q1, _quat_inv(q0))
-    got_deg = np.degrees(_quat_angle(delta))
-    assert abs(got_deg - swing_deg) < 1e-3, got_deg
+    t_arm = tgt.get_bone("mixamorig:leftarm")
+    t_fore = tgt.get_bone("mixamorig:leftforearm")
+    t_dir = _bone_dir(t_arm, t_fore)
+    v_t = _apply_wxyz(ret_rots["mixamorig:leftarm"][1], t_dir)
+
+    # Arm must be dominantly downward (-Y), not sideways (|x| small).
+    assert v_t[1] < -0.9, v_t
+    assert abs(v_t[0]) < 0.2, v_t
