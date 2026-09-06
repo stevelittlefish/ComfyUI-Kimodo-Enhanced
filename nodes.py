@@ -399,6 +399,13 @@ class Kimodo_ExportFBX:
                     "default": 0.0, "min": 0.0, "max": 10.0, "step": 0.01,
                     "tooltip": "Force scale multiplier (0 = auto height-based scaling).",
                 }),
+                "direction_aware": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "Correct each bone for the source-vs-target rest DIRECTION "
+                               "so an A-pose rig animates without the arms flapping. "
+                               "Leave ON for A-pose characters. Turn OFF for the legacy "
+                               "rotation-only behaviour (only correct for a T-posed target).",
+                }),
             },
         }
 
@@ -445,7 +452,7 @@ class Kimodo_ExportFBX:
         return None
 
     def export(self, motion, custom_fbx_path, filename_prefix="kimodo_fbx",
-               sample_index=0, yaw_offset=0.0, scale=0.0):
+               sample_index=0, yaw_offset=0.0, scale=0.0, direction_aware=True):
 
         from kimodo_retarget_fbx import export_kimodo_fbx, HAS_FBX_SDK
 
@@ -476,6 +483,7 @@ class Kimodo_ExportFBX:
                 sample_index=idx,
                 yaw_offset=yaw_offset,
                 force_scale=scale,
+                direction_aware=direction_aware,
             )
             print(f"[Kimodo] FBX exported: {out_path}", flush=True)
         except Exception as e:
@@ -520,6 +528,14 @@ class Kimodo_ExportGLB:
                                "in their rest pose (useful if fingers distort — isolates "
                                "the body retarget from the fragile finger chain).",
                 }),
+                "direction_aware": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "Correct each bone for the source-vs-target rest DIRECTION "
+                               "so an A-pose rig animates without the arms flapping. "
+                               "Leave ON for A-pose characters (e.g. SkinTokensRig). "
+                               "Turn OFF for the legacy rotation-only behaviour (only "
+                               "correct for a T-posed target).",
+                }),
             },
         }
 
@@ -530,7 +546,8 @@ class Kimodo_ExportGLB:
     OUTPUT_NODE = True
 
     def export(self, motion, rigged_glb, filename_prefix="kimodo_glb",
-               sample_index=0, yaw_offset=0.0, scale=0.0, map_fingers=True):
+               sample_index=0, yaw_offset=0.0, scale=0.0, map_fingers=True,
+               direction_aware=True):
 
         from kimodo_comfy_types import file3d_to_path, make_file3d
         from kimodo_retarget_glb import export_kimodo_glb
@@ -557,6 +574,7 @@ class Kimodo_ExportGLB:
                 yaw_offset=yaw_offset,
                 force_scale=scale,
                 map_fingers=map_fingers,
+                direction_aware=direction_aware,
             )
             print(f"[Kimodo] GLB exported: {out_path}", flush=True)
         except Exception as e:

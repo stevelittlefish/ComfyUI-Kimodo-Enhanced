@@ -545,8 +545,18 @@ def retarget_animation(
     mapping: dict,
     force_scale: float = 0.0,
     yaw_offset: float = 0.0,
+    direction_aware: bool = True,
 ):
-    _log("--- Retargeting animation ---")
+    """Retarget source motion onto the target skeleton.
+
+    ``direction_aware`` (default on) corrects each mapped bone for the difference
+    between the source and target *rest directions*, so a T-pose source drives an
+    A-pose (or any-pose) target without the arm "flapping". Turn it OFF to fall
+    back to the legacy rotation-only behaviour (correct only when the target is
+    itself T-posed) — useful as an escape hatch if the correction misbehaves on
+    an unusual rig.
+    """
+    _log(f"--- Retargeting animation (direction_aware={direction_aware}) ---")
     ret_rots = {}
     ret_locs = {}
 
@@ -581,9 +591,12 @@ def retarget_animation(
         # When both skeletons share a pose (e.g. both T-pose) the two directions
         # coincide, corr == identity, and the math below reduces exactly to the
         # legacy ``s_rot * off``, so the working T-pose path is unchanged.
-        s_dir = _rest_direction(src, s_bone, src_kids)
-        t_dir = _rest_direction(tgt, t_bone, tgt_kids)
-        corr = _quat_from_two_vectors(s_dir, t_dir)
+        if direction_aware:
+            s_dir = _rest_direction(src, s_bone, src_kids)
+            t_dir = _rest_direction(tgt, t_bone, tgt_kids)
+            corr = _quat_from_two_vectors(s_dir, t_dir)
+        else:
+            corr = _IDENTITY_Q.copy()
         active.append((s_bone, t_bone, off, corr))
         mapped_tgt.add(t_bone.name)
         mapped_src.add(s_bone.name)
@@ -924,11 +937,13 @@ def export_kimodo_fbx(
     sample_index: int = 0,
     yaw_offset: float = 0.0,
     force_scale: float = 0.0,
+    direction_aware: bool = True,
 ) -> str:
     """
     Export Kimodo SOMA motion to animated FBX via retargeting to a Mixamo character.
 
-    Returns path to the saved FBX.
+    ``direction_aware`` enables the rest-direction correction (A-pose support);
+    see ``retarget_animation``. Returns path to the saved FBX.
     """
     _log("=" * 60)
     _log("KIMODO FBX EXPORT START")
@@ -965,6 +980,7 @@ def export_kimodo_fbx(
         ret_rots, ret_locs = retarget_animation(
             src_skel, tgt_skel, SOMA_TO_MIXAMO,
             force_scale=force_scale, yaw_offset=yaw_offset,
+            direction_aware=direction_aware,
         )
 
         if len(ret_rots) == 0:

@@ -62,6 +62,12 @@ janky" — shortest-arc leaves bone-roll undefined, which is fine for that bar.
 The **root/hip translation** block still uses the original `off` (unchanged),
 so hip motion is byte-identical to before.
 
+The correction is exposed as a **`direction_aware` toggle** (default ON) on both
+the Export GLB and Export FBX nodes, threaded through
+`retarget_animation(..., direction_aware=...)`. Turning it OFF restores the exact
+legacy rotation-only path — the escape hatch if the correction ever misbehaves on
+an unusual rig.
+
 ## Testing (no GPU / no FBX SDK / no ComfyUI needed)
 
 `tests/test_retarget_direction.py` is pure-numpy: it builds tiny `SkeletonData`

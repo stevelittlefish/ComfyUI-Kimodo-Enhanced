@@ -290,10 +290,12 @@ def export_kimodo_glb(
     yaw_offset: float = 0.0,
     force_scale: float = 0.0,
     map_fingers: bool = True,
+    direction_aware: bool = True,
 ) -> str:
     """Retarget Kimodo SOMA motion onto a rigged glb and save an animated glb.
 
-    Returns the path to the saved glb.
+    ``direction_aware`` enables the rest-direction correction (A-pose support);
+    see ``retarget_animation``. Returns the path to the saved glb.
     """
     _log("=" * 60)
     _log("KIMODO GLB EXPORT START")
@@ -326,6 +328,7 @@ def export_kimodo_glb(
         ret_rots, ret_locs = retarget_animation(
             src_skel, tgt_skel, mapping,
             force_scale=force_scale, yaw_offset=yaw_offset,
+            direction_aware=direction_aware,
         )
         if len(ret_rots) == 0:
             _log("WARNING: No bone pairs matched — glb will have no animation!")

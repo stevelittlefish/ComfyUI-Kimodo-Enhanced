@@ -125,6 +125,24 @@ def test_tpose_to_tpose_matches_legacy():
     assert np.allclose(got, legacy_world, atol=1e-6), (got, legacy_world)
 
 
+def test_direction_aware_off_matches_legacy_on_apose():
+    """The toggle OFF reproduces the legacy rotation-only output even on A-pose."""
+    src = _source_tpose()
+    tgt = _target_apose(down_deg=65.0)
+
+    lift = _q_xyzw_to_wxyz(R.from_euler("z", 40, degrees=True).as_quat())
+    _apply_source_motion(src, {"leftarm": lift})
+
+    ret_rots, _ = retarget_animation(src, tgt, MAPPING, direction_aware=False)
+
+    s_arm = src.get_bone("leftarm")
+    t_arm = tgt.get_bone("leftarm")
+    off = _quat_mul(_quat_inv(s_arm.rest_rotation), t_arm.rest_rotation)
+    legacy_world = _quat_mul(lift, off)  # hips parent identity -> local == world
+    got = ret_rots["mixamorig:leftarm"][1]
+    assert np.allclose(got, legacy_world, atol=1e-6), (got, legacy_world)
+
+
 def test_apose_rest_frame_holds_rest_pose():
     """At the rest frame an A-pose target must reproduce its own rest, not snap flat."""
     src = _source_tpose()
