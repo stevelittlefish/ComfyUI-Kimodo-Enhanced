@@ -122,6 +122,26 @@ Two glb-only export behaviours (`kimodo_retarget_glb.py`):
   of the Armature's world transform in the retarget itself; the toggle is the
   pragmatic route the user asked for.
 
+## Root motion: parent-scale fix + `animate_in_place`
+
+In the root/hips translation block of `retarget_animation`, the world-space
+displacement is now converted into the hips' local channel with the parent's
+**full inverse world-linear transform** (rotation AND scale), derived from the
+bone's own matrices: `parent_lin = world_lin @ inv(local_lin)`. Previously it
+only inverted the parent rotation (and for a non-joint parent even that fell back
+to identity), so a **Mixamo-cm rig** (`Armature` scale **0.01**) received only
+**~1/100th** of the root motion — the mesh "walked on the spot" while the raw
+SOMA preview travelled. For a hips that is itself the scene root, `parent_lin` is
+identity, so unit-scale rigs are unchanged. This is the **default** now: the
+character travels, matching the source.
+
+**`animate_in_place` toggle (default OFF, both nodes).** When on, the root's
+**horizontal** travel (SOMA is Y-up, so the X/Z ground plane) is zeroed while the
+**vertical** (Y) is kept — so the character stays on the spot but still bobs,
+leaves the ground, and jumps. Masked in source space before any rotation.
+Tests: `test_root_translation_accounts_for_parent_scale` (unit vs 0.01 parent →
+100× local delta) and `test_animate_in_place_drops_horizontal_keeps_vertical`.
+
 ## Testing (no GPU / no FBX SDK / no ComfyUI needed)
 
 `tests/test_retarget_direction.py` is pure-numpy: it builds tiny `SkeletonData`

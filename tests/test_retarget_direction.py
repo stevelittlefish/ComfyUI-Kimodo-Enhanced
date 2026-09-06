@@ -221,3 +221,53 @@ def test_apose_source_down_keeps_target_down():
     # Arm must be dominantly downward (-Y), not sideways (|x| small).
     assert v_t[1] < -0.9, v_t
     assert abs(v_t[0]) < 0.2, v_t
+
+
+# --- Root translation (parent scale + animate_in_place) --------------------
+
+def _root_motion_skels(parent_scale):
+    """Source hips walking +Z(1m) and up +Y(0.5m); target hips under a parent of
+    the given uniform scale (Mixamo-cm rigs have parent_scale=0.01)."""
+    s_hips = _bone("hips", [0, 0, 0])
+    s_hips.world_matrix = np.eye(4)
+    src = _skel("soma", [s_hips])
+    src.frame_start, src.frame_end = 0, 1
+    s_hips.world_animation = {0: IDENT.copy(), 1: IDENT.copy()}
+    s_hips.world_location_animation = {0: np.zeros(3), 1: np.array([0.0, 0.5, 1.0])}
+
+    t_world = np.array([0.0, 0.95, 0.0])
+    t_hips = _bone("mixamorig:hips", t_world)
+    wm = np.eye(4); wm[:3, :3] = parent_scale * np.eye(3); wm[3, :3] = t_world
+    lm = np.eye(4); lm[:3, :3] = np.eye(3); lm[3, :3] = t_world / parent_scale
+    t_hips.world_matrix = wm
+    t_hips.local_matrix = lm
+    tgt = _skel("mixamo", [t_hips])
+    return src, tgt
+
+
+def _hips_loc_delta(parent_scale, animate_in_place=False):
+    src, tgt = _root_motion_skels(parent_scale)
+    _, ret_locs = retarget_animation(
+        src, tgt, {"hips": "mixamorig:hips"},
+        force_scale=1.0, animate_in_place=animate_in_place,
+    )
+    loc = ret_locs["mixamorig:hips"]
+    return loc[1] - loc[0]
+
+
+def test_root_translation_accounts_for_parent_scale():
+    """A scaled parent (Mixamo cm) must not shrink the root motion: the local
+    translation delta scales by 1/parent_scale so world travel is preserved."""
+    d_unit = _hips_loc_delta(1.0)
+    d_cm = _hips_loc_delta(0.01)
+    # source moved +Z 1.0, +Y 0.5 in world; unit-scale parent -> same local delta
+    assert np.allclose(d_unit, [0.0, 0.5, 1.0], atol=1e-6), d_unit
+    # 0.01 parent -> local delta 100x bigger (so *0.01 world = same travel)
+    assert np.allclose(d_cm, [0.0, 50.0, 100.0], atol=1e-4), d_cm
+
+
+def test_animate_in_place_drops_horizontal_keeps_vertical():
+    d = _hips_loc_delta(0.01, animate_in_place=True)
+    # vertical (Y) preserved (jumps survive), horizontal (X,Z) removed
+    assert abs(d[1] - 50.0) < 1e-4, d
+    assert abs(d[0]) < 1e-6 and abs(d[2]) < 1e-6, d

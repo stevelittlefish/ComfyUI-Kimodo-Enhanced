@@ -546,6 +546,7 @@ def retarget_animation(
     force_scale: float = 0.0,
     yaw_offset: float = 0.0,
     auto_fix_input_pose: bool = False,
+    animate_in_place: bool = False,
 ):
     """Retarget source motion onto the target skeleton.
 
@@ -555,8 +556,14 @@ def retarget_animation(
     the target is itself T-posed this reduces exactly to the legacy behaviour, so
     it never alters a T-pose rig; it is off by default only so nothing changes
     unless the user opts in.
+
+    ``animate_in_place`` (default OFF) drops the root's horizontal travel while
+    keeping vertical motion, so the character walks/runs on the spot but still
+    bobs, comes off the ground, and jumps. Off by default, the root translates
+    fully (matches the source motion).
     """
-    _log(f"--- Retargeting animation (auto_fix_input_pose={auto_fix_input_pose}) ---")
+    _log(f"--- Retargeting animation (auto_fix_input_pose={auto_fix_input_pose}, "
+         f"animate_in_place={animate_in_place}) ---")
     ret_rots = {}
     ret_locs = {}
 
@@ -664,6 +671,21 @@ def retarget_animation(
             p_homog = np.append(t_rest_source_units, 1.0)
             p_local = (p_homog @ s_rest_mat_inv)[:3]
 
+            # Inverse of the root's PARENT world-linear transform (rotation AND
+            # scale), so a world-space displacement maps into the hips' local
+            # translation channel in the right units. Derived from the bone's own
+            # matrices: parent_lin = world_lin @ inv(local_lin). Without the scale
+            # term a Mixamo-cm rig (Armature scale 0.01) got ~1/100th of the root
+            # motion -> the character "walked on the spot". For a hips that is the
+            # scene root, parent_lin is identity, so unit-scale rigs are unchanged.
+            t_world_lin = t_bone.world_matrix[:3, :3]
+            t_local_lin = t_bone.local_matrix[:3, :3]
+            try:
+                parent_lin = t_world_lin @ np.linalg.inv(t_local_lin)
+                parent_lin_inv = np.linalg.inv(parent_lin)
+            except np.linalg.LinAlgError:
+                parent_lin_inv = np.eye(3)
+
             for f in frames:
                 s_q = s_bone.world_animation.get(f, s_bone.rest_rotation)
                 s_p = s_bone.world_location_animation.get(f, s_bone.world_matrix[3, :3])
@@ -671,6 +693,12 @@ def retarget_animation(
                 s_r = R.from_quat([s_q[1], s_q[2], s_q[3], s_q[0]]).as_matrix()
                 p_world_f = p_local @ s_r.T + s_p
                 disp = p_world_f - t_rest_source_units
+
+                # In-place: drop horizontal travel (SOMA is Y-up, so X/Z are the
+                # ground plane) but KEEP vertical (Y) so bob / jumps / coming off
+                # the ground survive. Masked in source space before any rotation.
+                if animate_in_place:
+                    disp = np.array([0.0, disp[1], 0.0])
 
                 off_rot = R.from_quat([off[1], off[2], off[3], off[0]])
                 disp = off_rot.apply(disp)
@@ -680,13 +708,7 @@ def retarget_animation(
                     rot_d = R.from_quat([yaw_q[1], yaw_q[2], yaw_q[3], yaw_q[0]])
                     disp_scaled = rot_d.apply(disp_scaled)
 
-                prot = tgt_world_anims.get(pname, {}).get(f)
-                if prot is None:
-                    prot = tgt.node_rest_rotations.get(pname, np.array([1, 0, 0, 0]))
-                    if yaw_offset != 0:
-                        prot = _quat_mul(yaw_q, prot)
-                p_rot_inv = R.from_quat([prot[1], prot[2], prot[3], prot[0]]).inv()
-                local_disp = p_rot_inv.apply(disp_scaled)
+                local_disp = parent_lin_inv @ disp_scaled
 
                 ret_locs[t_bone.name][f] = t_rest_loc + local_disp
 
@@ -953,12 +975,14 @@ def export_kimodo_fbx(
     force_scale: float = 0.0,
     auto_fix_input_pose: bool = False,
     map_fingers: bool = False,
+    animate_in_place: bool = False,
 ) -> str:
     """
     Export Kimodo SOMA motion to animated FBX via retargeting to a Mixamo character.
 
     ``auto_fix_input_pose`` enables the rest-direction correction (A-pose support);
-    see ``retarget_animation``. ``map_fingers`` retargets the finger bones (off by
+    see ``retarget_animation``. ``animate_in_place`` keeps the character on the spot
+    (vertical motion preserved). ``map_fingers`` retargets the finger bones (off by
     default — see ``_body_only_mapping``). Returns path to the saved FBX.
     """
     _log("=" * 60)
@@ -999,6 +1023,7 @@ def export_kimodo_fbx(
             src_skel, tgt_skel, mapping,
             force_scale=force_scale, yaw_offset=yaw_offset,
             auto_fix_input_pose=auto_fix_input_pose,
+            animate_in_place=animate_in_place,
         )
 
         if len(ret_rots) == 0:

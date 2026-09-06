@@ -415,6 +415,13 @@ class Kimodo_ExportFBX:
                                "leaves the hands in their natural rest pose while the body "
                                "animates. Turn ON only if your rig's fingers align well.",
                 }),
+                "animate_in_place": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "OFF by default (the character travels, matching the source "
+                               "motion). When ON, removes horizontal travel so it "
+                               "walks/runs on the spot — but KEEPS vertical motion, so "
+                               "bobbing, coming off the ground and jumps still work.",
+                }),
             },
         }
 
@@ -462,7 +469,7 @@ class Kimodo_ExportFBX:
 
     def export(self, motion, custom_fbx_path, filename_prefix="kimodo_fbx",
                sample_index=0, yaw_offset=0.0, scale=0.0, auto_fix_input_pose=False,
-               map_fingers=False):
+               map_fingers=False, animate_in_place=False):
 
         from kimodo_retarget_fbx import export_kimodo_fbx, HAS_FBX_SDK
 
@@ -495,6 +502,7 @@ class Kimodo_ExportFBX:
                 force_scale=scale,
                 auto_fix_input_pose=auto_fix_input_pose,
                 map_fingers=map_fingers,
+                animate_in_place=animate_in_place,
             )
             print(f"[Kimodo] FBX exported: {out_path}", flush=True)
         except Exception as e:
@@ -558,6 +566,13 @@ class Kimodo_ExportGLB:
                                "it to the nearest 90° axis, and tilts to Y-up WITHOUT "
                                "changing which way it faces; a no-op on an upright rig.",
                 }),
+                "animate_in_place": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "OFF by default (the character travels, matching the source "
+                               "motion). When ON, removes horizontal travel so it "
+                               "walks/runs on the spot — but KEEPS vertical motion, so "
+                               "bobbing, coming off the ground and jumps still work.",
+                }),
             },
         }
 
@@ -569,7 +584,8 @@ class Kimodo_ExportGLB:
 
     def export(self, motion, rigged_glb, filename_prefix="kimodo_glb",
                sample_index=0, yaw_offset=0.0, scale=0.0, map_fingers=False,
-               auto_fix_input_pose=False, fix_orientation=False):
+               auto_fix_input_pose=False, fix_orientation=False,
+               animate_in_place=False):
 
         from kimodo_comfy_types import file3d_to_path, make_file3d
         from kimodo_retarget_glb import export_kimodo_glb
@@ -598,6 +614,7 @@ class Kimodo_ExportGLB:
                 map_fingers=map_fingers,
                 auto_fix_input_pose=auto_fix_input_pose,
                 fix_orientation=fix_orientation,
+                animate_in_place=animate_in_place,
             )
             print(f"[Kimodo] GLB exported: {out_path}", flush=True)
         except Exception as e:

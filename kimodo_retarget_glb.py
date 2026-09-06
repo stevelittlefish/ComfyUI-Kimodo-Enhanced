@@ -457,14 +457,16 @@ def export_kimodo_glb(
     map_fingers: bool = False,
     auto_fix_input_pose: bool = False,
     fix_orientation: bool = False,
+    animate_in_place: bool = False,
 ) -> str:
     """Retarget Kimodo SOMA motion onto a rigged glb and save an animated glb.
 
     ``auto_fix_input_pose`` (opt-in) enables the rest-direction A-pose correction;
     see ``retarget_animation``. ``fix_orientation`` (opt-in) stands a rig that was
-    authored tipped over (e.g. a Z-up Mixamo armature) back upright. Any
-    pre-existing animations on the target are always stripped so the generated
-    clip is the only one. Returns the path to the saved glb.
+    authored tipped over (e.g. a Z-up Mixamo armature) back upright.
+    ``animate_in_place`` (opt-in) keeps the character on the spot while preserving
+    vertical motion (jumps). Any pre-existing animations on the target are always
+    stripped so the generated clip is the only one. Returns the path to the saved glb.
     """
     _log("=" * 60)
     _log("KIMODO GLB EXPORT START")
@@ -498,6 +500,7 @@ def export_kimodo_glb(
             src_skel, tgt_skel, mapping,
             force_scale=force_scale, yaw_offset=yaw_offset,
             auto_fix_input_pose=auto_fix_input_pose,
+            animate_in_place=animate_in_place,
         )
         if len(ret_rots) == 0:
             _log("WARNING: No bone pairs matched — glb will have no animation!")
