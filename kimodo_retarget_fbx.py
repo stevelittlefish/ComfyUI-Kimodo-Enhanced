@@ -545,18 +545,18 @@ def retarget_animation(
     mapping: dict,
     force_scale: float = 0.0,
     yaw_offset: float = 0.0,
-    direction_aware: bool = True,
+    auto_fix_input_pose: bool = False,
 ):
     """Retarget source motion onto the target skeleton.
 
-    ``direction_aware`` (default on) corrects each mapped bone for the difference
-    between the source and target *rest directions*, so a T-pose source drives an
-    A-pose (or any-pose) target without the arm "flapping". Turn it OFF to fall
-    back to the legacy rotation-only behaviour (correct only when the target is
-    itself T-posed) — useful as an escape hatch if the correction misbehaves on
-    an unusual rig.
+    ``auto_fix_input_pose`` (default OFF — opt-in) corrects each mapped bone for
+    the difference between the source and target *rest directions*, so a T-pose
+    source drives an A-pose (or any-pose) target without the arm "flapping". When
+    the target is itself T-posed this reduces exactly to the legacy behaviour, so
+    it never alters a T-pose rig; it is off by default only so nothing changes
+    unless the user opts in.
     """
-    _log(f"--- Retargeting animation (direction_aware={direction_aware}) ---")
+    _log(f"--- Retargeting animation (auto_fix_input_pose={auto_fix_input_pose}) ---")
     ret_rots = {}
     ret_locs = {}
 
@@ -600,7 +600,7 @@ def retarget_animation(
         # (e.g. a T-pose target) G == identity and this reduces EXACTLY to the
         # legacy off, so the working T-pose path cannot regress. Shortest-arc G
         # leaves bone roll/twist undefined — acceptable for the A-/T-pose bar.
-        if direction_aware:
+        if auto_fix_input_pose:
             s_dir = _rest_direction(src, s_bone, src_kids)
             t_dir = _rest_direction(tgt, t_bone, tgt_kids)
             g = _quat_from_two_vectors(t_dir, s_dir)
@@ -951,13 +951,13 @@ def export_kimodo_fbx(
     sample_index: int = 0,
     yaw_offset: float = 0.0,
     force_scale: float = 0.0,
-    direction_aware: bool = True,
+    auto_fix_input_pose: bool = False,
     map_fingers: bool = False,
 ) -> str:
     """
     Export Kimodo SOMA motion to animated FBX via retargeting to a Mixamo character.
 
-    ``direction_aware`` enables the rest-direction correction (A-pose support);
+    ``auto_fix_input_pose`` enables the rest-direction correction (A-pose support);
     see ``retarget_animation``. ``map_fingers`` retargets the finger bones (off by
     default — see ``_body_only_mapping``). Returns path to the saved FBX.
     """
@@ -998,7 +998,7 @@ def export_kimodo_fbx(
         ret_rots, ret_locs = retarget_animation(
             src_skel, tgt_skel, mapping,
             force_scale=force_scale, yaw_offset=yaw_offset,
-            direction_aware=direction_aware,
+            auto_fix_input_pose=auto_fix_input_pose,
         )
 
         if len(ret_rots) == 0:

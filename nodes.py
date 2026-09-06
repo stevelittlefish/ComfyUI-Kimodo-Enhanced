@@ -399,12 +399,13 @@ class Kimodo_ExportFBX:
                     "default": 0.0, "min": 0.0, "max": 10.0, "step": 0.01,
                     "tooltip": "Force scale multiplier (0 = auto height-based scaling).",
                 }),
-                "direction_aware": ("BOOLEAN", {
-                    "default": True,
-                    "tooltip": "Correct each bone for the source-vs-target rest DIRECTION "
-                               "so an A-pose rig animates without the arms flapping. "
-                               "Leave ON for A-pose characters. Turn OFF for the legacy "
-                               "rotation-only behaviour (only correct for a T-posed target).",
+                "auto_fix_input_pose": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "OFF by default. When ON, corrects each bone for the "
+                               "source-vs-target rest DIRECTION so an A-pose rig animates "
+                               "without the arms flapping. Turn ON only for an A-pose "
+                               "character; it is a no-op on a T-pose rig, so it never "
+                               "alters T-pose meshes.",
                 }),
                 "map_fingers": ("BOOLEAN", {
                     "default": False,
@@ -460,7 +461,7 @@ class Kimodo_ExportFBX:
         return None
 
     def export(self, motion, custom_fbx_path, filename_prefix="kimodo_fbx",
-               sample_index=0, yaw_offset=0.0, scale=0.0, direction_aware=True,
+               sample_index=0, yaw_offset=0.0, scale=0.0, auto_fix_input_pose=False,
                map_fingers=False):
 
         from kimodo_retarget_fbx import export_kimodo_fbx, HAS_FBX_SDK
@@ -492,7 +493,7 @@ class Kimodo_ExportFBX:
                 sample_index=idx,
                 yaw_offset=yaw_offset,
                 force_scale=scale,
-                direction_aware=direction_aware,
+                auto_fix_input_pose=auto_fix_input_pose,
                 map_fingers=map_fingers,
             )
             print(f"[Kimodo] FBX exported: {out_path}", flush=True)
@@ -540,13 +541,22 @@ class Kimodo_ExportGLB:
                                "leaves the hands in their natural rest pose while the body "
                                "animates. Turn ON only if your rig's fingers align well.",
                 }),
-                "direction_aware": ("BOOLEAN", {
-                    "default": True,
-                    "tooltip": "Correct each bone for the source-vs-target rest DIRECTION "
-                               "so an A-pose rig animates without the arms flapping. "
-                               "Leave ON for A-pose characters (e.g. SkinTokensRig). "
-                               "Turn OFF for the legacy rotation-only behaviour (only "
-                               "correct for a T-posed target).",
+                "auto_fix_input_pose": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "OFF by default. When ON, corrects each bone for the "
+                               "source-vs-target rest DIRECTION so an A-pose rig (e.g. "
+                               "SkinTokensRig) animates without the arms flapping. Turn "
+                               "ON only for an A-pose character; it is a no-op on a "
+                               "T-pose rig, so it never alters T-pose meshes.",
+                }),
+                "fix_orientation": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "OFF by default. When ON, stands the character upright if "
+                               "the input rig was authored tipped over (e.g. a Z-up "
+                               "Mixamo armature that otherwise animates face-down). "
+                               "Detects the rig's up axis from the spine and lower legs "
+                               "and tilts it to Y-up WITHOUT changing which way it faces; "
+                               "a no-op on an already-upright rig.",
                 }),
             },
         }
@@ -558,8 +568,8 @@ class Kimodo_ExportGLB:
     OUTPUT_NODE = True
 
     def export(self, motion, rigged_glb, filename_prefix="kimodo_glb",
-               sample_index=0, yaw_offset=0.0, scale=0.0, map_fingers=True,
-               direction_aware=True):
+               sample_index=0, yaw_offset=0.0, scale=0.0, map_fingers=False,
+               auto_fix_input_pose=False, fix_orientation=False):
 
         from kimodo_comfy_types import file3d_to_path, make_file3d
         from kimodo_retarget_glb import export_kimodo_glb
@@ -586,7 +596,8 @@ class Kimodo_ExportGLB:
                 yaw_offset=yaw_offset,
                 force_scale=scale,
                 map_fingers=map_fingers,
-                direction_aware=direction_aware,
+                auto_fix_input_pose=auto_fix_input_pose,
+                fix_orientation=fix_orientation,
             )
             print(f"[Kimodo] GLB exported: {out_path}", flush=True)
         except Exception as e:

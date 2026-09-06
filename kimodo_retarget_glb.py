@@ -257,7 +257,15 @@ def write_animation_to_gltf(g, node_of_joint, name_to_joint_index,
     if not channels:
         _log("  WARNING: no channels written (no bone matches).")
 
-    g.animations.append(Animation(name="kimodo", samplers=samplers, channels=channels))
+    # Strip any pre-existing animations (e.g. a Mixamo bind/rest 'Layer0' that
+    # rode in with the source rig) so the generated 'kimodo' clip is the ONLY
+    # animation — otherwise viewers default to the defunct clip and the character
+    # appears to not move until the user manually picks 'kimodo'. The old clips'
+    # accessors/bufferViews are left in place (unreferenced, harmless).
+    if g.animations:
+        _log(f"  Stripping {len(g.animations)} pre-existing animation(s): "
+             f"{[a.name for a in g.animations]}")
+    g.animations = [Animation(name="kimodo", samplers=samplers, channels=channels)]
 
     # Update the single GLB buffer to the new length.
     while len(blob) % 4 != 0:
@@ -268,6 +276,150 @@ def write_animation_to_gltf(g, node_of_joint, name_to_joint_index,
 
     _log(f"  Wrote {n_rot} rotation channel(s), {n_loc} translation channel(s), "
          f"{len(frames)} keyframes @ {fps} fps")
+
+
+# ============================================================================
+# Orientation fix
+# ============================================================================
+
+def _shortest_arc_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """3x3 rotation taking unit-ish vector ``a`` onto ``b`` (shortest arc)."""
+    a = a / (np.linalg.norm(a) + 1e-12)
+    b = b / (np.linalg.norm(b) + 1e-12)
+    d = float(np.clip(np.dot(a, b), -1.0, 1.0))
+    if d > 1.0 - 1e-8:
+        return np.eye(3)
+    if d < -1.0 + 1e-8:
+        axis = np.cross(a, [1.0, 0.0, 0.0])
+        if np.linalg.norm(axis) < 1e-6:
+            axis = np.cross(a, [0.0, 1.0, 0.0])
+        return R.from_rotvec(axis / np.linalg.norm(axis) * np.pi).as_matrix()
+    axis = np.cross(a, b)
+    return R.from_rotvec(axis / np.linalg.norm(axis) * np.arccos(d)).as_matrix()
+
+
+def _suffix_node_index(g):
+    """Map lowercase bone-name suffix (e.g. 'hips', after any 'mixamorig8:') -> node index."""
+    idx = {}
+    for i, n in enumerate(g.nodes):
+        nm = (n.name or "").split(":")[-1].lower()
+        if nm and nm not in idx:
+            idx[nm] = i
+    return idx
+
+
+def _animated_world_positions(g, anim, node_indices, frame):
+    """World positions of ``node_indices`` at animation ``frame`` (index into the
+    keyframe arrays), evaluating the animation's rotation/translation channels and
+    the static rest TRS for everything else."""
+    parent = {}
+    for i, n in enumerate(g.nodes):
+        for c in (n.children or []):
+            parent[c] = i
+
+    def _acc(i):
+        a = g.accessors[i]
+        bv = g.bufferViews[a.bufferView]
+        off = (bv.byteOffset or 0) + (a.byteOffset or 0)
+        nc = {"SCALAR": 1, "VEC3": 3, "VEC4": 4}[a.type]
+        return np.frombuffer(g.binary_blob(), np.float32, a.count * nc, off).reshape(a.count, nc)
+
+    anim_rot, anim_loc = {}, {}
+    for ch in anim.channels:
+        s = anim.samplers[ch.sampler]
+        (anim_rot if ch.target.path == "rotation" else anim_loc)[ch.target.node] = _acc(s.output)
+
+    def local(n):
+        m = _node_local_matrix(g.nodes[n])  # rest TRS
+        if n in anim_rot:
+            fi = min(frame, len(anim_rot[n]) - 1)
+            m[:3, :3] = R.from_quat(anim_rot[n][fi]).as_matrix()
+        if n in anim_loc:
+            fi = min(frame, len(anim_loc[n]) - 1)
+            m[:3, 3] = anim_loc[n][fi]
+        return m
+
+    out = {}
+    for key, n in node_indices.items():
+        M = local(n)
+        m = n
+        while m in parent:
+            m = parent[m]
+            M = local(m) @ M
+        out[key] = M[:3, 3]
+    return out
+
+
+def _detect_up_axis_animated(g, anim):
+    """World UP direction of the ANIMATED character, averaged over a few frames.
+
+    The tip we correct lives in the animation (the retarget replaces the hips'
+    bind rotation, which on a Z-up armature drops the character onto its face), so
+    up is measured from the posed skeleton, not the rest pose. Two cues per frame:
+    hips->neck (torso up) and ankle->knee (shin up). Returns a unit vector or None.
+    """
+    idx = _suffix_node_index(g)
+    want = {}
+    for k in ("hips", "neck", "leftleg", "leftfoot", "rightleg", "rightfoot"):
+        if k in idx:
+            want[k] = idx[k]
+    if "hips" not in want or "neck" not in want:
+        return None
+
+    nkey = anim.samplers[0].input if anim.samplers else None
+    nframes = g.accessors[nkey].count if nkey is not None else 1
+    frames = sorted(set([0, nframes // 2, max(0, nframes - 1)]))
+
+    up = np.zeros(3)
+    for f in frames:
+        p = _animated_world_positions(g, anim, want, f)
+        cues = [p["neck"] - p["hips"]]
+        for knee, ankle in (("leftleg", "leftfoot"), ("rightleg", "rightfoot")):
+            if knee in p and ankle in p:
+                cues.append(p[knee] - p[ankle])
+        for c in cues:
+            n = np.linalg.norm(c)
+            if n > 1e-9:
+                up += c / n
+    n = np.linalg.norm(up)
+    return up / n if n > 1e-9 else None
+
+
+def _apply_orientation_fix(g):
+    """Stand the animated character upright (Y-up) by pre-rotating scene root(s).
+
+    Detects the animated up axis and bakes the shortest-arc rotation that maps it
+    onto +Y into every scene-root node. The rotation is a pure tilt about a
+    horizontal axis, so it never changes facing/yaw and is a no-op for a rig that
+    already animates upright. Returns True if a non-trivial fix applied.
+    """
+    if not g.animations:
+        return False
+    up = _detect_up_axis_animated(g, g.animations[0])
+    if up is None:
+        _log("  Orientation fix: could not detect up axis (missing hips/neck) — skipped.")
+        return False
+    Rfix = _shortest_arc_matrix(up, np.array([0.0, 1.0, 0.0]))
+    angle = np.degrees(np.arccos(np.clip((np.trace(Rfix) - 1) / 2, -1, 1)))
+    if angle < 0.5:
+        _log(f"  Orientation fix: up={np.round(up,3)} already ~+Y (Δ={angle:.2f}°) — no change.")
+        return False
+    _log(f"  Orientation fix: up={np.round(up,3)} -> +Y, tilt {angle:.1f}°")
+
+    Rfix4 = np.eye(4)
+    Rfix4[:3, :3] = Rfix
+    roots = g.scenes[g.scene or 0].nodes
+    for n in roots:
+        node = g.nodes[n]
+        if node.matrix:
+            M = np.array(node.matrix, dtype=np.float64).reshape(4, 4).T  # column-major -> row math
+            M = Rfix4 @ M
+            node.matrix = M.T.reshape(16).tolist()
+        else:
+            r = node.rotation or [0.0, 0.0, 0.0, 1.0]  # xyzw
+            new_r = R.from_matrix(Rfix) * R.from_quat(r)
+            node.rotation = new_r.as_quat().tolist()  # xyzw
+    return True
 
 
 # ============================================================================
@@ -282,12 +434,16 @@ def export_kimodo_glb(
     yaw_offset: float = 0.0,
     force_scale: float = 0.0,
     map_fingers: bool = False,
-    direction_aware: bool = True,
+    auto_fix_input_pose: bool = False,
+    fix_orientation: bool = False,
 ) -> str:
     """Retarget Kimodo SOMA motion onto a rigged glb and save an animated glb.
 
-    ``direction_aware`` enables the rest-direction correction (A-pose support);
-    see ``retarget_animation``. Returns the path to the saved glb.
+    ``auto_fix_input_pose`` (opt-in) enables the rest-direction A-pose correction;
+    see ``retarget_animation``. ``fix_orientation`` (opt-in) stands a rig that was
+    authored tipped over (e.g. a Z-up Mixamo armature) back upright. Any
+    pre-existing animations on the target are always stripped so the generated
+    clip is the only one. Returns the path to the saved glb.
     """
     _log("=" * 60)
     _log("KIMODO GLB EXPORT START")
@@ -320,17 +476,21 @@ def export_kimodo_glb(
         ret_rots, ret_locs = retarget_animation(
             src_skel, tgt_skel, mapping,
             force_scale=force_scale, yaw_offset=yaw_offset,
-            direction_aware=direction_aware,
+            auto_fix_input_pose=auto_fix_input_pose,
         )
         if len(ret_rots) == 0:
             _log("WARNING: No bone pairs matched — glb will have no animation!")
 
-        # 4. Write animation channels into the glTF and save.
+        # 4. Write animation channels into the glTF (strips any stale clips).
         write_animation_to_gltf(
             g, node_of_joint, name_to_joint_index,
             ret_rots, ret_locs,
             src_skel.frame_start, src_skel.frame_end, float(motion_data.fps),
         )
+
+        # 5. Optionally stand the character upright.
+        if fix_orientation:
+            _apply_orientation_fix(g)
 
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         g.save_binary(output_path)

@@ -127,7 +127,7 @@ def test_tpose_to_tpose_matches_legacy():
     assert np.allclose(got, legacy_world, atol=1e-6), (got, legacy_world)
 
 
-def test_direction_aware_off_matches_legacy_on_apose():
+def test_auto_fix_input_pose_off_matches_legacy_on_apose():
     """The toggle OFF reproduces the legacy rotation-only output even on A-pose."""
     src = _source_tpose()
     tgt = _target_apose(down_deg=65.0)
@@ -135,7 +135,7 @@ def test_direction_aware_off_matches_legacy_on_apose():
     lift = _q_xyzw_to_wxyz(R.from_euler("z", 40, degrees=True).as_quat())
     _apply_source_motion(src, {"leftarm": lift})
 
-    ret_rots, _ = retarget_animation(src, tgt, MAPPING, direction_aware=False)
+    ret_rots, _ = retarget_animation(src, tgt, MAPPING, auto_fix_input_pose=False)
 
     s_arm = src.get_bone("leftarm")
     t_arm = tgt.get_bone("leftarm")
@@ -187,7 +187,7 @@ def test_apose_target_bone_points_where_source_points():
     s_world = _q_xyzw_to_wxyz(swing.as_quat())  # world rotation taking s_dir -> v_s
     _apply_source_motion(src, {"leftarm": s_world})
 
-    ret_rots, _ = retarget_animation(src, tgt, MAPPING)
+    ret_rots, _ = retarget_animation(src, tgt, MAPPING, auto_fix_input_pose=True)
 
     # Target arm world rotation == its local channel (hips parent is identity).
     t_arm = tgt.get_bone("mixamorig:leftarm")
@@ -211,7 +211,7 @@ def test_apose_source_down_keeps_target_down():
     s_world = _q_xyzw_to_wxyz(swing.as_quat())
     _apply_source_motion(src, {"leftarm": s_world})
 
-    ret_rots, _ = retarget_animation(src, tgt, MAPPING)
+    ret_rots, _ = retarget_animation(src, tgt, MAPPING, auto_fix_input_pose=True)
 
     t_arm = tgt.get_bone("mixamorig:leftarm")
     t_fore = tgt.get_bone("mixamorig:leftforearm")

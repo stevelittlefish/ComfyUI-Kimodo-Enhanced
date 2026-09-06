@@ -129,7 +129,7 @@
         {"name": "rigged_glb", "type": "FILE_3D_GLB", "links": [20]}
       ],
       "properties": {"Node name for S&R": "Kimodo_ExportGLB"},
-      "widgets_values": ["kimodo_glb", 0, 0, 0, false, true]
+      "widgets_values": ["kimodo_glb", 0, 0, 0, false, false, false]
     },
     {
       "id": 12,

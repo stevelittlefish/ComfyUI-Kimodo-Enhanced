@@ -71,11 +71,12 @@ janky" — shortest-arc `G` leaves bone roll/twist undefined, which is fine for
 that bar. `off` is applied exactly as before, so the **root/hip translation**
 block is unaffected (for the near-vertical hips `G ≈ identity`).
 
-The correction is exposed as a **`direction_aware` toggle** (default ON) on both
-the Export GLB and Export FBX nodes, threaded through
-`retarget_animation(..., direction_aware=...)`. Turning it OFF restores the exact
-legacy rotation-only path — the escape hatch if the correction ever misbehaves on
-an unusual rig.
+The correction is exposed as an **`auto_fix_input_pose` toggle** (default **OFF —
+opt-in**) on both the Export GLB and Export FBX nodes, threaded through
+`retarget_animation(..., auto_fix_input_pose=...)`. It is off by default so nothing
+changes unless the user asks; when the target is T-posed it reduces exactly to the
+legacy path, so **it never alters a T-pose mesh** even when on. Turn it on for an
+A-pose rig.
 
 ### Fingers are OFF by default (`map_fingers`)
 
@@ -89,6 +90,34 @@ drops the finger bones, leaving the hands in their natural rest pose while the
 body animates. Turn it ON only for a rig whose fingers align well with SOMA.
 A proper fix (transfer the source's finger *curl* relative to its own rest,
 rather than absolute direction) is possible but unbuilt.
+
+## GLB export: strip stale clips + orientation fix
+
+Two glb-only export behaviours (`kimodo_retarget_glb.py`):
+
+- **Always strip pre-existing animations.** A rig imported from Mixamo often
+  ships a defunct bind/rest clip (`Armature|mixamo.com|Layer0`, ~2 keyframes).
+  glTF viewers play the *first* animation, so the character looks frozen until
+  the user manually picks `kimodo`. `write_animation_to_gltf` now sets
+  `g.animations = [kimodo]` (not append), so the generated clip is the only one.
+  Unconditional — not a toggle.
+
+- **`fix_orientation` toggle (default OFF, GLB node only).** Some rigs animate
+  **face-down**. Root cause: a Mixamo-style rig has a **Z-up `Armature` root
+  (+90° X)** cancelled by the **hips bind rotation (−90° X)** — but the retarget
+  treats the hips as a skeleton root (the Armature isn't a skin joint, so
+  `parent_name` is None) and the animation channel **replaces** the hips bind
+  rotation with SOMA's ~identity, dropping the −90° X compensation → the whole
+  body tips onto its face. So the tip lives in the **animation, not the rest
+  pose** — `_apply_orientation_fix` measures the up axis from the **posed**
+  skeleton (`_detect_up_axis_animated`, averaged over a few frames: hips→neck and
+  ankle→knee) and bakes the shortest-arc rotation that maps it onto +Y into the
+  scene-root node(s). It's a **pure tilt about a horizontal axis, so it never
+  changes facing/yaw**, and is a no-op for a rig that already animates upright.
+  Validated on `~/Documents/meshes/Debug/dummy_rotated.glb` (100° tip → upright).
+  A cleaner long-term fix would be to compose the hips channel with the inverse
+  of the Armature's world transform in the retarget itself; the toggle is the
+  pragmatic route the user asked for.
 
 ## Testing (no GPU / no FBX SDK / no ComfyUI needed)
 
