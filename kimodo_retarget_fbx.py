@@ -83,6 +83,69 @@ def _quat_mul(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
     ])
 
 
+_IDENTITY_Q = np.array([1., 0., 0., 0.])
+
+
+def _quat_from_two_vectors(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Shortest-arc quaternion [w,x,y,z] rotating unit-ish vector ``a`` onto ``b``.
+
+    Used to build the rest-*direction* correction between a source bone and its
+    mapped target bone (see ``retarget_animation``). Degenerate inputs (either
+    vector ~zero, already aligned) return identity; the anti-parallel case picks
+    an arbitrary perpendicular axis for a 180° turn.
+    """
+    na = float(np.linalg.norm(a))
+    nb = float(np.linalg.norm(b))
+    if na < 1e-8 or nb < 1e-8:
+        return _IDENTITY_Q.copy()
+    a = a / na
+    b = b / nb
+    d = float(np.dot(a, b))
+    if d > 1.0 - 1e-8:
+        return _IDENTITY_Q.copy()
+    if d < -1.0 + 1e-8:
+        # 180°: any axis perpendicular to a.
+        axis = np.cross(a, np.array([1., 0., 0.]))
+        if np.linalg.norm(axis) < 1e-6:
+            axis = np.cross(a, np.array([0., 1., 0.]))
+        axis = axis / np.linalg.norm(axis)
+        return np.array([0., axis[0], axis[1], axis[2]])
+    axis = np.cross(a, b)
+    s = np.sqrt((1.0 + d) * 2.0)
+    q = np.array([s * 0.5, axis[0] / s, axis[1] / s, axis[2] / s])
+    return q / np.linalg.norm(q)
+
+
+def _children_map(skel) -> dict:
+    """name(lower) -> list of child BoneData, derived from each bone's parent link."""
+    kids: dict = {}
+    for bone in skel.bones.values():
+        if bone.parent_name is None:
+            continue
+        parent = skel.get_bone(bone.parent_name)
+        if parent is not None:
+            kids.setdefault(parent.name.lower(), []).append(bone)
+    return kids
+
+
+def _rest_direction(skel, bone, kids: dict) -> np.ndarray:
+    """World-space rest direction of ``bone``: toward its longest child bone.
+
+    Falls back to (bone.head - parent.head) for leaf bones. Returns a zero
+    vector only when no direction can be established (isolated root), which the
+    caller treats as "no correction".
+    """
+    children = kids.get(bone.name.lower(), [])
+    if children:
+        best = max(children, key=lambda c: np.linalg.norm(c.head - bone.head))
+        return best.head - bone.head
+    if bone.parent_name is not None:
+        parent = skel.get_bone(bone.parent_name)
+        if parent is not None:
+            return bone.head - parent.head
+    return np.zeros(3)
+
+
 # ============================================================================
 # Data Structures
 # ============================================================================
@@ -491,6 +554,9 @@ def retarget_animation(
     yaw_q = np.array([yaw_q_raw[3], yaw_q_raw[0], yaw_q_raw[1], yaw_q_raw[2]])
 
     # 1. Build active bone pairs
+    src_kids = _children_map(src)
+    tgt_kids = _children_map(tgt)
+
     active = []
     mapped_tgt = set()
     mapped_src = set()
@@ -509,12 +575,21 @@ def retarget_animation(
         if t_bone.name in mapped_tgt or s_bone.name in mapped_src:
             continue
         off = _quat_mul(_quat_inv(s_bone.rest_rotation), t_bone.rest_rotation)
-        active.append((s_bone, t_bone, off))
+        # Rest-DIRECTION correction: rotate the source bone's rest direction onto
+        # the target's. This is what makes a T-pose source drive an A-pose (or
+        # any-pose) target correctly — the rotation-only ``off`` above ignores it.
+        # When both skeletons share a pose (e.g. both T-pose) the two directions
+        # coincide, corr == identity, and the math below reduces exactly to the
+        # legacy ``s_rot * off``, so the working T-pose path is unchanged.
+        s_dir = _rest_direction(src, s_bone, src_kids)
+        t_dir = _rest_direction(tgt, t_bone, tgt_kids)
+        corr = _quat_from_two_vectors(s_dir, t_dir)
+        active.append((s_bone, t_bone, off, corr))
         mapped_tgt.add(t_bone.name)
         mapped_src.add(s_bone.name)
 
     _log(f"  Matched bone pairs: {len(active)}")
-    for s, t, _ in sorted(active, key=lambda x: x[1].name):
+    for s, t, _, _ in sorted(active, key=lambda x: x[1].name):
         _log(f"    {s.name:30s} → {t.name}")
 
     if miss_src:
@@ -540,11 +615,23 @@ def retarget_animation(
     # 3. World rotations
     tgt_world_anims = {}
 
-    for s_bone, t_bone, off in active:
+    for s_bone, t_bone, off, corr in active:
         tgt_world_anims[t_bone.name] = {}
+        corr_inv = _quat_inv(corr)
+        s_rest_inv = _quat_inv(s_bone.rest_rotation)
         for f in frames:
             s_rot = s_bone.world_animation.get(f, s_bone.rest_rotation)
-            t_rot = _quat_mul(s_rot, off)
+            # Source world delta from its own rest, re-expressed in the target's
+            # rest frame via the direction correction, then applied onto the
+            # target's rest orientation:
+            #   delta_s = s_rot * inv(s_rest)
+            #   delta_t = corr * delta_s * inv(corr)
+            #   t_rot   = delta_t * t_rest
+            # With corr == identity and identity rests this is exactly the old
+            # ``s_rot * off`` (off = inv(s_rest) * t_rest).
+            delta_s = _quat_mul(s_rot, s_rest_inv)
+            delta_t = _quat_mul(_quat_mul(corr, delta_s), corr_inv)
+            t_rot = _quat_mul(delta_t, t_bone.rest_rotation)
             if yaw_offset != 0:
                 t_rot = _quat_mul(yaw_q, t_rot)
             tgt_world_anims[t_bone.name][f] = t_rot
@@ -598,7 +685,7 @@ def retarget_animation(
             _log(f"    Root loc frame[{fN}]: ({ret_locs[t_bone.name][fN][0]:.4f}, {ret_locs[t_bone.name][fN][1]:.4f}, {ret_locs[t_bone.name][fN][2]:.4f})")
 
     # 4. Local rotations from world
-    for s_bone, t_bone, _ in active:
+    for s_bone, t_bone, _, _ in active:
         ret_rots[t_bone.name] = {}
         pname = t_bone.parent_name
         for f in frames:
