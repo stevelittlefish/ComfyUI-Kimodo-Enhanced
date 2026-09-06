@@ -111,9 +111,12 @@ Two glb-only export behaviours (`kimodo_retarget_glb.py`):
   body tips onto its face. So the tip lives in the **animation, not the rest
   pose** — `_apply_orientation_fix` measures the up axis from the **posed**
   skeleton (`_detect_up_axis_animated`, averaged over a few frames: hips→neck and
-  ankle→knee) and bakes the shortest-arc rotation that maps it onto +Y into the
-  scene-root node(s). It's a **pure tilt about a horizontal axis, so it never
-  changes facing/yaw**, and is a no-op for a rig that already animates upright.
+  ankle→knee), **snaps it to the nearest principal axis** (`_snap_to_axis` — the
+  rig is only ever tipped by a whole multiple of 90°, so this drops the
+  character's walk/lean that would otherwise leave it leaning back), and bakes the
+  rotation mapping that axis onto +Y into the scene-root node(s). It's a **clean
+  90° tilt about a horizontal axis, so it never changes facing/yaw**, and is a
+  no-op for a rig that already animates upright.
   Validated on `~/Documents/meshes/Debug/dummy_rotated.glb` (100° tip → upright).
   A cleaner long-term fix would be to compose the hips channel with the inverse
   of the Armature's world transform in the retarget itself; the toggle is the

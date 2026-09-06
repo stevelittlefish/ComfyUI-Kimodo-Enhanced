@@ -7,7 +7,29 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from kimodo_retarget_glb import _shortest_arc_matrix  # noqa: E402
+from kimodo_retarget_glb import _shortest_arc_matrix, _snap_to_axis  # noqa: E402
+
+
+def test_snap_to_axis_picks_dominant_signed_axis():
+    import numpy as np
+    cases = {
+        (-0.017, -0.175, 0.984): (0, 0, 1),   # tipped forward + walk lean -> +Z
+        (0.02, 0.99, -0.05): (0, 1, 0),        # already up
+        (-0.9, 0.1, 0.2): (-1, 0, 0),
+        (0.05, -0.98, 0.1): (0, -1, 0),
+    }
+    for v, exp in cases.items():
+        assert tuple(_snap_to_axis(np.array(v))) == exp, (v, _snap_to_axis(np.array(v)))
+
+
+def test_snapped_correction_is_clean_90_multiple():
+    """After snapping, the correction angle is exactly 0/90/180°, never a lean."""
+    import numpy as np
+    for v in ([-0.017, -0.175, 0.984], [0.3, 0.1, -0.95], [-0.88, 0.2, 0.4]):
+        a = _snap_to_axis(np.array(v))
+        R = _shortest_arc_matrix(a, np.array([0.0, 1.0, 0.0]))
+        ang = np.degrees(np.arccos(np.clip((np.trace(R) - 1) / 2, -1, 1)))
+        assert min(abs(ang - k) for k in (0, 90, 180)) < 1e-6, (v, ang)
 
 
 def test_shortest_arc_identity_when_aligned():

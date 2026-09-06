@@ -282,6 +282,21 @@ def write_animation_to_gltf(g, node_of_joint, name_to_joint_index,
 # Orientation fix
 # ============================================================================
 
+def _snap_to_axis(v: np.ndarray) -> np.ndarray:
+    """Snap a vector to its nearest signed principal axis (±X, ±Y, ±Z).
+
+    A rig authored tipped over is always rotated by a whole multiple of 90° per
+    axis, so the true up axis is one of the six principal directions. The
+    measured up axis carries the character's walk/lean, which we do NOT want to
+    bake into the correction — snapping to the dominant axis discards it and
+    keeps the fix a clean 90° rotation.
+    """
+    i = int(np.argmax(np.abs(v)))
+    out = np.zeros(3)
+    out[i] = 1.0 if v[i] >= 0 else -1.0
+    return out
+
+
 def _shortest_arc_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """3x3 rotation taking unit-ish vector ``a`` onto ``b`` (shortest arc)."""
     a = a / (np.linalg.norm(a) + 1e-12)
@@ -388,10 +403,12 @@ def _detect_up_axis_animated(g, anim):
 def _apply_orientation_fix(g):
     """Stand the animated character upright (Y-up) by pre-rotating scene root(s).
 
-    Detects the animated up axis and bakes the shortest-arc rotation that maps it
-    onto +Y into every scene-root node. The rotation is a pure tilt about a
-    horizontal axis, so it never changes facing/yaw and is a no-op for a rig that
-    already animates upright. Returns True if a non-trivial fix applied.
+    Detects the animated up axis, SNAPS it to the nearest principal axis (the rig
+    is only ever tipped by a whole multiple of 90°), and bakes the rotation that
+    maps that axis onto +Y into every scene-root node. Snapping keeps the fix a
+    clean 90° tilt about a horizontal axis, so it discards the character's
+    walk/lean, never changes facing/yaw, and is a no-op for an already-upright
+    rig. Returns True if a non-trivial fix applied.
     """
     if not g.animations:
         return False
@@ -399,12 +416,16 @@ def _apply_orientation_fix(g):
     if up is None:
         _log("  Orientation fix: could not detect up axis (missing hips/neck) — skipped.")
         return False
-    Rfix = _shortest_arc_matrix(up, np.array([0.0, 1.0, 0.0]))
+    # Snap to the nearest principal axis: the rig is only ever tipped by a whole
+    # multiple of 90°, so this drops the character's walk/lean from the measured
+    # up and keeps the correction a clean axis-aligned 90° rotation.
+    up_snapped = _snap_to_axis(up)
+    Rfix = _shortest_arc_matrix(up_snapped, np.array([0.0, 1.0, 0.0]))
     angle = np.degrees(np.arccos(np.clip((np.trace(Rfix) - 1) / 2, -1, 1)))
     if angle < 0.5:
-        _log(f"  Orientation fix: up={np.round(up,3)} already ~+Y (Δ={angle:.2f}°) — no change.")
+        _log(f"  Orientation fix: up={np.round(up,3)} -> {up_snapped} already ~+Y — no change.")
         return False
-    _log(f"  Orientation fix: up={np.round(up,3)} -> +Y, tilt {angle:.1f}°")
+    _log(f"  Orientation fix: up={np.round(up,3)} -> snapped {up_snapped} -> +Y, tilt {angle:.0f}°")
 
     Rfix4 = np.eye(4)
     Rfix4[:3, :3] = Rfix

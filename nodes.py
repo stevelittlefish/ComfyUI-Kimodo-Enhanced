@@ -554,9 +554,9 @@ class Kimodo_ExportGLB:
                     "tooltip": "OFF by default. When ON, stands the character upright if "
                                "the input rig was authored tipped over (e.g. a Z-up "
                                "Mixamo armature that otherwise animates face-down). "
-                               "Detects the rig's up axis from the spine and lower legs "
-                               "and tilts it to Y-up WITHOUT changing which way it faces; "
-                               "a no-op on an already-upright rig.",
+                               "Detects the up axis from the spine and lower legs, snaps "
+                               "it to the nearest 90° axis, and tilts to Y-up WITHOUT "
+                               "changing which way it faces; a no-op on an upright rig.",
                 }),
             },
         }
